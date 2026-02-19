@@ -1,46 +1,69 @@
-name: Build Official Files v4.0.28 Portable
+name: Files Sideload Build (Custom)
 on: workflow_dispatch
 
 jobs:
   build:
     runs-on: windows-latest
     env:
-      PROJECT_PATH: 'src/Files.App/Files.App.csproj'
-      OUTPUT_DIR: '${{ github.workspace }}\artifacts\Portable'
+      SOLUTION_NAME: 'Files.slnx'
       CONFIGURATION: 'Release'
-      RUNTIME: 'win-x64'
+      PLATFORM: 'x64'
+      APPX_PACKAGE_DIR: '${{ github.workspace }}\artifacts\AppxPackages'
+      PACKAGE_PROJECT_PATH: 'src\Files.App (Package)\Files.Package.wapproj'
+      LAUNCHER_PROJECT_PATH: 'src\Files.App.Launcher\Files.App.Launcher.vcxproj'
+      CERT_FILE: 'GitHubActions.pfx'
 
     steps:
-    - name: Checkout Official Repo
+    - name: Checkout
       uses: actions/checkout@v4
       with:
         repository: files-community/Files
-        ref: v4.0.28 # Тянем конкретно стабильную 28-ю
+        ref: v4.0.28
         fetch-depth: 1
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         global-json-file: global.json
 
-    - name: Restore Dependencies
-      run: dotnet restore ${{ env.PROJECT_PATH }} -r ${{ env.RUNTIME }}
-
-    - name: Publish Portable Build
+    - name: Create Self-Signed Certificate
       shell: pwsh
       run: |
-        # Собираем "летающую" версию со всеми оптимизациями
-        dotnet publish ${{ env.PROJECT_PATH }} `
-        -c ${{ env.CONFIGURATION }} `
-        -r ${{ env.RUNTIME }} `
-        --self-contained true `
-        -p:PublishReadyToRun=true `
-        -p:PublishSingleFile=false `
-        -p:IncludeNativeLibrariesForSelfExtract=true `
-        -o "${{ env.OUTPUT_DIR }}"
+        $password = ConvertTo-SecureString "Password123" -AsPlainText -Force
+        $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=MyFilesBuild" -KeyUsage DigitalSignature -FriendlyName "FilesDevCert" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") -NotAfter (Get-Date).AddYears(1)
+        Export-PfxCertificate -Cert $cert -FilePath "${{ env.CERT_FILE }}" -Password $password
+        echo "CERT_PASSWORD=Password123" >> $env:GITHUB_ENV
 
-    - name: Upload Artifact
+    - name: Restore Files
+      run: |
+        msbuild ${{ env.SOLUTION_NAME }} -t:Restore -p:Platform=${{ env.PLATFORM }} -p:Configuration=${{ env.CONFIGURATION }} -p:PublishReadyToRun=true
+
+    - name: Build Launcher
+      run: |
+        msbuild ${{ env.LAUNCHER_PROJECT_PATH }} -p:Platform=${{ env.PLATFORM }} -p:Configuration=${{ env.CONFIGURATION }}
+
+    - name: Build & Package (Signed)
+      shell: pwsh
+      run: |
+        msbuild "${{ env.PACKAGE_PROJECT_PATH }}" `
+        -t:Build `
+        -t:_GenerateAppxPackage `
+        -p:Platform=${{ env.PLATFORM }} `
+        -p:Configuration=${{ env.CONFIGURATION }} `
+        -p:AppxBundle=Always `
+        -p:AppxPackageDir="${{ env.APPX_PACKAGE_DIR }}" `
+        -p:UapAppxPackageBuildMode=Sideload `
+        -p:PackageCertificateKeyFile="${{ github.workspace }}\${{ env.CERT_FILE }}" `
+        -p:PackageCertificatePassword="${{ env.CERT_PASSWORD }}" `
+        -p:PublishReadyToRun=true
+
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: Files-v4.0.28-Official-Portable
-        path: ${{ env.OUTPUT_DIR }}
+        name: Files-Custom-Bundle
+        path: |
+          ${{ env.APPX_PACKAGE_DIR }}
+          ${{ env.CERT_FILE }}
