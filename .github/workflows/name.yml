@@ -1,4 +1,4 @@
-name: Files Sideload Build (Fixed Launcher)
+name: Files-Sideload-Stable-v28
 on: workflow_dispatch
 
 jobs:
@@ -10,11 +10,10 @@ jobs:
       PLATFORM: 'x64'
       APPX_PACKAGE_DIR: '${{ github.workspace }}\artifacts\AppxPackages'
       PACKAGE_PROJECT_PATH: 'src\Files.App (Package)\Files.Package.wapproj'
-      LAUNCHER_PROJECT_PATH: 'src\Files.App.Launcher\Files.App.Launcher.vcxproj'
       CERT_FILE: 'GitHubActions.pfx'
 
     steps:
-    - name: Checkout
+    - name: Checkout Official
       uses: actions/checkout@v4
       with:
         repository: files-community/Files
@@ -25,7 +24,7 @@ jobs:
       uses: microsoft/setup-msbuild@v2
 
     - name: Setup NuGet
-      uses: NuGet/setup-nuget@v2  # <--- Добавили утилиту NuGet
+      uses: NuGet/setup-nuget@v2
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -40,22 +39,17 @@ jobs:
         Export-PfxCertificate -Cert $cert -FilePath "${{ env.CERT_FILE }}" -Password $password
         echo "CERT_PASSWORD=Password123" >> $env:GITHUB_ENV
 
-    - name: Restore Solution
+    - name: Full Restore
       run: |
+        # Сначала восстанавливаем всё решение
         msbuild ${{ env.SOLUTION_NAME }} -t:Restore -p:Platform=${{ env.PLATFORM }} -p:Configuration=${{ env.CONFIGURATION }}
-
-    - name: Restore Launcher NuGet
-      run: |
-        # Специальный рестор для C++ проекта, чтобы не было ошибки про missing package
-        nuget restore ${{ env.LAUNCHER_PROJECT_PATH }} -SolutionDirectory ${{ github.workspace }}
-
-    - name: Build Launcher
-      run: |
-        msbuild ${{ env.LAUNCHER_PROJECT_PATH }} -p:Platform=${{ env.PLATFORM }} -p:Configuration=${{ env.CONFIGURATION }}
+        # Добиваем восстановление для C++ проектов (Лаунчера), чтобы не было ошибки
+        nuget restore src/Files.App.Launcher/Files.App.Launcher.vcxproj -SolutionDirectory ${{ github.workspace }}
 
     - name: Build & Package (Signed)
       shell: pwsh
       run: |
+        # Мы добавляем PublishReadyToRun прямо сюда!
         msbuild "${{ env.PACKAGE_PROJECT_PATH }}" `
         -t:Build `
         -t:_GenerateAppxPackage `
@@ -66,12 +60,13 @@ jobs:
         -p:UapAppxPackageBuildMode=Sideload `
         -p:PackageCertificateKeyFile="${{ github.workspace }}\${{ env.CERT_FILE }}" `
         -p:PackageCertificatePassword="${{ env.CERT_PASSWORD }}" `
-        -p:PublishReadyToRun=true
+        -p:PublishReadyToRun=true `
+        -v:minimal
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: Files-Sideload-v4.0.28
+        name: Files-v28-Fixed
         path: |
           ${{ env.APPX_PACKAGE_DIR }}
           ${{ env.CERT_FILE }}
