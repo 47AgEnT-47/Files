@@ -1,63 +1,45 @@
-name: Manual Build (Signed Sideload)
+name: Build Files Portable (No Installer)
 on: workflow_dispatch
 
 jobs:
   build:
     runs-on: windows-latest
     env:
-      SOLUTION_NAME: 'Files.slnx'
+      
+      PROJECT_PATH: 'src/Files.App/Files.App.csproj'
+      OUTPUT_DIR: '${{ github.workspace }}\artifacts\Portable'
       CONFIGURATION: 'Release'
-      PLATFORM: 'x64'
-      APPX_PACKAGE_DIR: '${{ github.workspace }}\artifacts\AppxPackages'
-      PACKAGE_PROJECT_PATH: 'src\Files.App (Package)\Files.Package.wapproj'
-      CERT_FILE: 'GitHubActions.pfx'
+      RUNTIME: 'win-x64'
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
+      with:
+        ref: v4.0.28 
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         global-json-file: global.json
 
-    - name: Create Self-Signed Certificate
+    - name: Restore Dependencies
+      run: dotnet restore ${{ env.PROJECT_PATH }} -r ${{ env.RUNTIME }}
+
+    - name: Publish Portable Build
       shell: pwsh
       run: |
-        # Создаем сертификат в памяти
-        $password = ConvertTo-SecureString "Password123" -AsPlainText -Force
-        $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=MyFilesBuild" -KeyUsage DigitalSignature -FriendlyName "FilesDevCert" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") -NotAfter (Get-Date).AddYears(1)
         
-        # Экспортируем в PFX файл
-        Export-PfxCertificate -Cert $cert -FilePath "${{ env.CERT_FILE }}" -Password $password
-        echo "CERT_PASSWORD=Password123" >> $env:GITHUB_ENV
+        dotnet publish ${{ env.PROJECT_PATH }} `
+        -c ${{ env.CONFIGURATION }} `
+        -r ${{ env.RUNTIME }} `
+        --self-contained true `
+        -p:PublishReadyToRun=true `
+        -p:PublishSingleFile=false `
+        -p:IncludeNativeLibrariesForSelfExtract=true `
+        -o "${{ env.OUTPUT_DIR }}"
 
-    - name: Restore Files
-      run: |
-        msbuild ${{ env.SOLUTION_NAME }} -t:Restore -p:Platform=${{ env.PLATFORM }} -p:Configuration=${{ env.CONFIGURATION }}
-
-    - name: Build & Package (Signed)
-      shell: pwsh
-      run: |
-        msbuild "${{ env.PACKAGE_PROJECT_PATH }}" `
-        -t:Build `
-        -t:_GenerateAppxPackage `
-        -p:Platform=${{ env.PLATFORM }} `
-        -p:Configuration=${{ env.CONFIGURATION }} `
-        -p:AppxBundle=Always `
-        -p:AppxPackageDir="${{ env.APPX_PACKAGE_DIR }}" `
-        -p:UapAppxPackageBuildMode=Sideload `
-        -p:PackageCertificateKeyFile="${{ github.workspace }}\${{ env.CERT_FILE }}" `
-        -p:PackageCertificatePassword="${{ env.CERT_PASSWORD }}" `
-        -v:minimal
-
-    - name: Upload Artifacts
+    - name: Upload Files Portable
       uses: actions/upload-artifact@v4
       with:
-        name: Files-Signed-Package
-        path: |
-          ${{ env.APPX_PACKAGE_DIR }}
-          ${{ env.CERT_FILE }}
+        name: Files-v4.0.28-Portable
+        path: ${{ env.OUTPUT_DIR }}
