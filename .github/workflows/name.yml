@@ -1,21 +1,22 @@
-name: Build Files Portable (No Installer)
+name: Build Official Files v4.0.28 Portable
 on: workflow_dispatch
 
 jobs:
   build:
     runs-on: windows-latest
     env:
-      
       PROJECT_PATH: 'src/Files.App/Files.App.csproj'
       OUTPUT_DIR: '${{ github.workspace }}\artifacts\Portable'
       CONFIGURATION: 'Release'
       RUNTIME: 'win-x64'
 
     steps:
-    - name: Checkout
+    - name: Checkout Official Repo
       uses: actions/checkout@v4
       with:
-        ref: v4.0.28 
+        repository: files-community/Files
+        ref: v4.0.28 # Тянем конкретно стабильную 28-ю
+        fetch-depth: 1
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -28,7 +29,7 @@ jobs:
     - name: Publish Portable Build
       shell: pwsh
       run: |
-        
+        # Собираем "летающую" версию со всеми оптимизациями
         dotnet publish ${{ env.PROJECT_PATH }} `
         -c ${{ env.CONFIGURATION }} `
         -r ${{ env.RUNTIME }} `
@@ -38,8 +39,8 @@ jobs:
         -p:IncludeNativeLibrariesForSelfExtract=true `
         -o "${{ env.OUTPUT_DIR }}"
 
-    - name: Upload Files Portable
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Files-v4.0.28-Portable
+        name: Files-v4.0.28-Official-Portable
         path: ${{ env.OUTPUT_DIR }}
