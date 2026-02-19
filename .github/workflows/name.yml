@@ -1,4 +1,4 @@
-name: Files Sideload Build (Custom)
+name: Files Sideload Build (Fixed Launcher)
 on: workflow_dispatch
 
 jobs:
@@ -24,6 +24,9 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
 
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v2  # <--- Добавили утилиту NuGet
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -37,9 +40,14 @@ jobs:
         Export-PfxCertificate -Cert $cert -FilePath "${{ env.CERT_FILE }}" -Password $password
         echo "CERT_PASSWORD=Password123" >> $env:GITHUB_ENV
 
-    - name: Restore Files
+    - name: Restore Solution
       run: |
-        msbuild ${{ env.SOLUTION_NAME }} -t:Restore -p:Platform=${{ env.PLATFORM }} -p:Configuration=${{ env.CONFIGURATION }} -p:PublishReadyToRun=true
+        msbuild ${{ env.SOLUTION_NAME }} -t:Restore -p:Platform=${{ env.PLATFORM }} -p:Configuration=${{ env.CONFIGURATION }}
+
+    - name: Restore Launcher NuGet
+      run: |
+        # Специальный рестор для C++ проекта, чтобы не было ошибки про missing package
+        nuget restore ${{ env.LAUNCHER_PROJECT_PATH }} -SolutionDirectory ${{ github.workspace }}
 
     - name: Build Launcher
       run: |
@@ -63,7 +71,7 @@ jobs:
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: Files-Custom-Bundle
+        name: Files-Sideload-v4.0.28
         path: |
           ${{ env.APPX_PACKAGE_DIR }}
           ${{ env.CERT_FILE }}
